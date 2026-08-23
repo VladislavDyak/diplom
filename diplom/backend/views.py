@@ -13,10 +13,12 @@ from rest_framework.views import APIView
 from ujson import loads
 from yaml import load, Loader
 
-from backend.models import ConfirmEmailToken, Category, Shop, Product, Order, OrderItem, ProductInfo, ProductParameter, \
+from .models import ConfirmEmailToken, Category, Shop, Product, Order, OrderItem, ProductInfo, ProductParameter, \
     Contact
-from backend.serializer import UserSerializer, CategorySerializer, ShopSerializer, ProductInfoSerializer, \
+from .serializer import UserSerializer, CategorySerializer, ShopSerializer, ProductInfoSerializer, \
     OrderSerializer, OrderItemSerializer, ContactSerializer
+from .signals import new_order
+
 
 
 def strtobool(value: str) -> bool:
@@ -48,7 +50,7 @@ class RegisterAccount(APIView):
                     return JsonResponse({'Status': "Success"}, status=200)
 
                 else:
-                    return JsonResponse({'Status': 'Failure'}, status=403)
+                    return JsonResponse({'Status': 'Failure', 'errors': user_serializer.errors}, status=403)
 
         return JsonResponse({'Status': "Failure"}, status=403)
 
@@ -247,7 +249,7 @@ class BasketView(APIView):
             return JsonResponse({'Status': "Failure", 'reason': 'Not all required arguments were specified'}, status=400)
 
 
-class PartnerView(APIView):
+class PartnerUpdateView(APIView):
 
 
     def post(self, request):
@@ -302,7 +304,7 @@ class PartnerView(APIView):
                             value = value,
                         )
                 return JsonResponse({'Status': "Success", "Partner URL: " : url}, status=200)
-            return JsonResponse({'Status': "Failure", 'reason': 'Not all required arguments were specified'}, status=400)
+        return JsonResponse({'Status': "Failure", 'reason': 'Not all required arguments were specified'}, status=400)
 
 
 class PartnerStateView(APIView):

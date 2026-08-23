@@ -1,6 +1,7 @@
 import secrets
 
 from django.contrib.auth.base_user import BaseUserManager, AbstractBaseUser
+from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models
 from django.utils.translation import gettext_lazy
 
@@ -61,10 +62,11 @@ class User(AbstractBaseUser):
     email = models.EmailField(gettext_lazy('email address'), unique=True)
     company = models.CharField(verbose_name='Компания', max_length=40, blank=True)
     position = models.CharField(verbose_name='Должность', max_length=40, blank=True)
+    username_validator = UnicodeUsernameValidator()
     username = models.CharField(gettext_lazy('username'),
                                 max_length=150,
                                 help_text='Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.',
-                                validators=['username_validator'],
+                                validators=[username_validator],
                                 error_messages={'unique': 'A user with that username already exists.'
                                 },
                                 )
@@ -188,7 +190,7 @@ class ProductParameter(models.Model):
         verbose_name = "Параметр"
         verbose_name_plural = "Список параметров"
         constraints = [
-            models.UniqueConstraint(fields=['product_info', 'parameter'], name='unique_product_id'),
+            models.UniqueConstraint(fields=['product_info', 'parameter'], name='unique_product_parameter_id'),
         ]
 
 
@@ -279,7 +281,7 @@ class ConfirmEmailToken(models.Model):
 
     key = models.CharField(
         gettext_lazy('Key'),
-        max_length=64,
+        max_length=255,
         db_index=True,
         unique=True,
     )
@@ -287,7 +289,7 @@ class ConfirmEmailToken(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.key:
-            self.key = self.generate_token()
+            self.key = self.generate_token(email=self.user.email)
         return super(ConfirmEmailToken, self).save(*args, **kwargs)
 
     def __str__(self):
