@@ -15,7 +15,7 @@ def password_reset_token_created(sender, instance, reset_password_token,**kwargs
     msg = EmailMultiAlternatives(
         f"Password Reset Token for {reset_password_token.user}",
         reset_password_token.key,
-        settings.EMAIL_HOST_USER,
+        settings.DEFAULT_FROM_EMAIL,
         [reset_password_token.user.email]
     )
     msg.send()
@@ -28,7 +28,7 @@ def new_user_registered_signal(sender, instance, created, **kwargs):
         msg = EmailMultiAlternatives(
             f"Password Reset Token for {instance.email}",
             token.key,
-            settings.EMAIL_HOST_USER,
+            settings.DEFAULT_FROM_EMAIL,
             [instance.email]
         )
         msg.send()
@@ -41,7 +41,7 @@ def new_order_signal(user_id, **kwargs):
     msg = EmailMultiAlternatives(
         "Update order`s state",
         "Order created",
-        settings.EMAIL_HOST_USER,
+        settings.DEFAULT_FROM_EMAIL,
         [user.email]
     )
     msg.send()

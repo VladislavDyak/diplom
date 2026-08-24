@@ -4,7 +4,7 @@ from django.contrib.auth.base_user import BaseUserManager, AbstractBaseUser
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models
 from django.utils.translation import gettext_lazy
-
+from django_rest_passwordreset.tokens import get_token_generator
 
 STATE_CHOICES = (
     ('basket', 'Статус корзины'),
@@ -268,7 +268,7 @@ class ConfirmEmailToken(models.Model):
 
     @staticmethod
     def generate_token(email):
-        return secrets.token_urlsafe(64)
+        return get_token_generator().generate_token(email)
 
     user = models.ForeignKey(User,
                                 related_name='confirmation_tokens',

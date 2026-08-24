@@ -5,6 +5,7 @@ from django.db import IntegrityError
 from django.db.models import Q, F, Sum
 from django.http import JsonResponse
 from requests.api import get
+from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView
@@ -30,31 +31,57 @@ def strtobool(value: str) -> bool:
 class RegisterAccount(APIView):
 
     def post(self, request)->JsonResponse:
+        required = {'first_name', 'last_name', 'email', 'password', 'company', 'position'}
+        missing = set(required) - set(request.data.keys())
 
+        if missing:
+            return JsonResponse(
+                {'Status':'Failure','message': f'Missing values {missing}'},
+                status=status.HTTP_400_BAD_REQUEST)
 
-        if {'first_name', 'last_name', 'email', 'password', 'company', 'position'}.issubset(request.data):
+        try:
+            validate_password(request.data['password'])
+        except ValidationError as e:
+            return JsonResponse(
+                {'Status':'Failure','message': f'Validation Error {str(e)}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-            try:
-                validate_password(request.data['password'])
+        serializer = UserSerializer(data=request.data)
 
-            except ValidationError as pass_error:
-                return JsonResponse({'error': f'Пароль не прошёл валидацию, ошибка {pass_error}'}, status=403)
+        if not serializer.is_valid():
+            return JsonResponse(
+                {'Status':'Failure','message': f'Errors: {serializer.errors}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        user = serializer.save()
+        ConfirmEmailToken.objects.create(user=user)
+        return JsonResponse(
+            {'Status':'Success','message': f'Successfully registered! {user.pk}'},
+            status=status.HTTP_201_CREATED
+        )
 
-            else:
-                user_serializer = UserSerializer(data=request.data)
-
-                if user_serializer.is_valid():
-                    user = user_serializer.save()
-                    user.set_password(request.data['password'])
-                    user.save()
-                    return JsonResponse({'Status': "Success"}, status=200)
-
-                else:
-                    return JsonResponse({'Status': 'Failure', 'errors': user_serializer.errors}, status=403)
-
-        return JsonResponse({'Status': "Failure"}, status=403)
-
-
+        # if {'first_name', 'last_name', 'email', 'password', 'company', 'position'}.issubset(request.data):
+        #
+        #     try:
+        #         validate_password(request.data['password'])
+        #
+        #     except ValidationError as pass_error:
+        #         return JsonResponse({'error': f'Пароль не прошёл валидацию, ошибка {pass_error}'}, status=403)
+        #
+        #     else:
+        #         user_serializer = UserSerializer(data=request.data)
+        #
+        #         if user_serializer.is_valid():
+        #             user = user_serializer.save()
+        #             user.set_password(request.data['password'])
+        #             user.save()
+        #             return JsonResponse({'Status': "Success"}, status=200)
+        #
+        #         else:
+        #             return JsonResponse({'Status': 'Failure', 'errors': user_serializer.errors}, status=403)
+        #
+        # return JsonResponse({'Status': "Failure"}, status=403)
 
 
 class ConfirmAccount(APIView):
@@ -117,7 +144,7 @@ class LoginAccount(APIView):
                     token, _ = Token.objects.get_or_create(user=user)
                     return JsonResponse({'Status': "Success", 'Token': token.key}, status=200)
 
-            return JsonResponse({'Status': "Failure", 'reason':'User was not authorized'}, status=403)
+            return JsonResponse({'Status': "Failure", 'reason':'User is not exist'}, status=403)
 
         return JsonResponse({'Status': "Failure", 'reason':'Email and Password can`t be Null'}, status=403)
 
