@@ -1,7 +1,4 @@
-import secrets
-
 from django.contrib.auth.base_user import BaseUserManager, AbstractBaseUser
-from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models
 from django.utils.translation import gettext_lazy
 from django_rest_passwordreset.tokens import get_token_generator
@@ -31,7 +28,7 @@ class UserManager(BaseUserManager):
         if not email:
             raise ValueError('The given email must be set')
 
-        email = self.normalize_email(email)
+        email = self.normalize_email(email).lower()
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -62,14 +59,6 @@ class User(AbstractBaseUser):
     email = models.EmailField(gettext_lazy('email address'), unique=True)
     company = models.CharField(verbose_name='Компания', max_length=40, blank=True)
     position = models.CharField(verbose_name='Должность', max_length=40, blank=True)
-    username_validator = UnicodeUsernameValidator()
-    username = models.CharField(gettext_lazy('username'),
-                                max_length=150,
-                                help_text='Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.',
-                                validators=[username_validator],
-                                error_messages={'unique': 'A user with that username already exists.'
-                                },
-                                )
     is_active = models.BooleanField(gettext_lazy('active'),
                                     default=False,
                                     help_text='Designates whether this user should be treated as active. '
@@ -77,8 +66,8 @@ class User(AbstractBaseUser):
                                     )
     type = models.CharField(verbose_name='Тип пользователя', choices=USER_TYPE_CHOICES, max_length=5, default='buyer')
 
-    def __str__(self):
-        return f'{self.first_name} {self.last_name}'
+    # def __str__(self):
+    #     return f'{self.first_name} {self.last_name}'
 
     class Meta:
         verbose_name = "Пользователь"

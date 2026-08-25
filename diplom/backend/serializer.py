@@ -17,9 +17,10 @@ class UserSerializer(serializers.ModelSerializer):
     contacts = ContactSerializer(read_only=True, many=True)
     password = serializers.CharField(write_only=True)
 
+
     class Meta:
         model = User
-        fields = ('id', 'first_name', 'last_name', 'email', 'password', 'company', 'position', 'contacts')
+        fields = ('id', 'first_name', 'last_name', 'email', 'password', 'company', 'position', 'contacts', 'type')
         read_only_fields = ('id',)
 
     def create(self, validated_data):

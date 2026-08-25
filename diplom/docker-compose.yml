@@ -1,5 +1,7 @@
 services:
   web:
+    restart:
+      on-failure
     build:
       context: .
       dockerfile: Dockerfile
