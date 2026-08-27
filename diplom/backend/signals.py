@@ -39,7 +39,7 @@ def new_order_signal(user_id, **kwargs):
     user = User.objects.get(id=user_id)
 
     msg = EmailMultiAlternatives(
-        "Update order`s state",
+        "Update order\'s state",
         "Order created",
         settings.DEFAULT_FROM_EMAIL,
         [user.email]
