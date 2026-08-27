@@ -15,19 +15,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from ujson import loads
 from yaml import load, Loader, safe_load
+from setuptools._distutils.util import strtobool
 
 from .models import ConfirmEmailToken, Category, Shop, Product, Order, OrderItem, ProductInfo, ProductParameter, \
     Contact, Parameter
 from .serializer import UserSerializer, CategorySerializer, ShopSerializer, ProductInfoSerializer, \
     OrderSerializer, OrderItemSerializer, ContactSerializer
 from .signals import new_order
-
-
-def strtobool(value: str) -> bool:
-  value = value.lower()
-  if value in ("y", "yes", "on", "1", "true", "t"):
-    return True
-  return False
 
 
 
@@ -321,6 +315,7 @@ class PartnerUpdateView(APIView):
                     product_info = ProductInfo.objects.create(
                         product_id = product.id,
                         external_id = item['id'],
+                        name = item['name'],
                         model=item['model'],
                         price = item['price'],
                         quantity = item['quantity'],

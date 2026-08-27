@@ -3,6 +3,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy
 from django_rest_passwordreset.tokens import get_token_generator
 
+
 STATE_CHOICES = (
     ('basket', 'Статус корзины'),
     ('new', 'Новый'),
@@ -15,7 +16,7 @@ STATE_CHOICES = (
 
 USER_TYPE_CHOICES = (
     ('shop', 'Магазин'),
-    ('buyer', 'Отменён'),
+    ('buyer', 'Покупатель'),
 )
 
 
@@ -66,8 +67,8 @@ class User(AbstractBaseUser):
                                     )
     type = models.CharField(verbose_name='Тип пользователя', choices=USER_TYPE_CHOICES, max_length=5, default='buyer')
 
-    # def __str__(self):
-    #     return f'{self.first_name} {self.last_name}'
+    def __str__(self):
+        return f'{self.first_name} {self.last_name}'
 
     class Meta:
         verbose_name = "Пользователь"
@@ -123,6 +124,7 @@ class Product(models.Model):
 
 
 class ProductInfo(models.Model):
+    name = models.CharField(max_length=100, verbose_name='Имя')
     model = models.CharField(max_length=100, verbose_name='Модель', blank=True)
     external_id = models.PositiveIntegerField(verbose_name='Внешний ID')
     product = models.ForeignKey(Product,
@@ -247,9 +249,8 @@ class OrderItem(models.Model):
         ]
 
 
-
 class ConfirmEmailToken(models.Model):
-    objects = models.manager.Manager()
+    objects = models.Manager()
     class Meta:
         verbose_name = "Токен подтверждения Email"
         verbose_name_plural = "Токены подтверждения Email"
