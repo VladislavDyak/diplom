@@ -166,6 +166,7 @@ class Parameter(models.Model):
 class ProductParameter(models.Model):
     product_info = models.ForeignKey(ProductInfo,
                                      verbose_name='Информация о продукте',
+                                     related_name='product_parameters',
                                      on_delete=models.CASCADE,
                                      blank=True,)
 

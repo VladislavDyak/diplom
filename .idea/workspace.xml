@@ -5,15 +5,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="ed97aac2-0c0f-48c1-9743-42163d7e1e8b" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/diplom/backend/management/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/diplom/backend/management/commands/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/diplom/backend/management/commands/import_yaml.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/diplom/backend/migrations/0001_initial.py" beforeDir="false" afterPath="$PROJECT_DIR$/diplom/backend/migrations/0001_initial.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/diplom/backend/migrations/0002_remove_user_username.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/diplom/backend/serializer.py" beforeDir="false" afterPath="$PROJECT_DIR$/diplom/backend/serializer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/diplom/backend/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/diplom/backend/models.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/diplom/backend/views.py" beforeDir="false" afterPath="$PROJECT_DIR$/diplom/backend/views.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/diplom/diplom/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/diplom/diplom/settings.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

@@ -1,3 +1,5 @@
+import json
+
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.validators import URLValidator
@@ -189,10 +191,10 @@ class BasketView(APIView):
 
         basket = Order.objects.filter(
             user_id=request.user.id, state = 'basket').prefetch_related(
-            'ordered_items__product_info__product__category',
-            'ordered_items__product_info__product_parameters__parameter'
+            'order_items__product_info__product__category',
+            'order_items__product_info__product_parameters__parameter'
         ).annotate(
-            total_sum=Sum(F('ordered_items__quantity') * F('ordered_items__product_info__price'))
+            total_sum=Sum(F('order_items__quantity') * F('order_items__product_info__price'))
         ).distinct()
 
         serializer = OrderSerializer(basket, many=True)
@@ -204,10 +206,10 @@ class BasketView(APIView):
 
         if items_string:
             try:
-                items_dict = loads(items_string)
+                items_dict = json.loads(items_string)
 
-            except ValueError:
-                return JsonResponse({'Status': "Failure", 'Причина':'Некорректный JSON'}, status=400)
+            except ValueError as e:
+                return JsonResponse({'Status': "Failure", 'Причина':str(e)}, status=400)
 
             else:
                 basket, _ = Order.objects.get_or_create(user_id=request.user.id, state = 'basket')
@@ -215,6 +217,7 @@ class BasketView(APIView):
                 for order_item in items_dict:
                     order_item.update({'order': basket.id})
                     serializer = OrderItemSerializer(data = order_item)
+                    print(order_item)
                     if serializer.is_valid():
                         try:
                             serializer.save()
@@ -459,31 +462,43 @@ class OrderView(APIView):
     def get(self, request):
 
         order = Order.objects.filter(user_id=request.user.id).exclude(state='basket').prefetch_related(
-            'ordered_items__product_info__product__category',
-            'ordered_items__product_info__product_parameters__parameter').select_related('contact').annotate(
-            total_sum=Sum(F('ordered_items__quantity') * F('ordered_items__product_info__price'))).distinct()
+            'order_items__product_info__product__category',
+            'order_items__product_info__product_parameters__parameter').select_related('contact').annotate(
+            total_sum=Sum(F('order_items__quantity') * F('order_items__product_info__price'))).distinct()
         serializer = OrderSerializer(order, many=True)
         return Response(serializer.data)
 
     def post(self, request):
 
-        if {'id', 'contact'}.issubset(request.data):
-            if request.data['id'].isdigit():
-                try:
-                    is_updated = Order.objects.filter(
-                        user_id=request.user.id,
-                        id = request.data['id'],
-                    ).update(
-                        contact_id = request.data['contact'],
-                        state = 'new'
-                    )
-                except IntegrityError as e:
-                    return JsonResponse({'Status': "Failure", 'reason': e}, status=status.HTTP_400_BAD_REQUEST)
+        if not {'id', 'contact'}.issubset(request.data):
+            return JsonResponse({
+                                    'Status': "Failure",
+                                    'Reason': 'Не указаны в переданных данных ID или Contact'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-                else:
-                    if is_updated:
-                        new_order.send(sender=self.__class__, user_id=request.user.id)
-                        return JsonResponse({'Status': "Success"}, status=status.HTTP_200_OK)
 
-        return JsonResponse({'Status': "Failure", 'reason': 'Not all required arguments were specified'}, status=status.HTTP_400_BAD_REQUEST)
+        if not request.data['id'].isdigit():
+
+            return JsonResponse({'Status': "Failure", 'Reason': 'ID должен быть числом'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+
+            order = Order.objects.filter(user_id=request.user.id, id = request.data['id'], state = 'basket',).first()
+
+            if not order:
+                return JsonResponse({'Status': 'Failure', 'Reason': 'Заказ не найден'}, status=status.HTTP_404_NOT_FOUND)
+
+            order.contact_id = request.data['contact']
+            order.state = 'new'
+            order.save(update_fields=['contact_id', 'state'])
+
+            new_order.send(sender=self.__class__, user_id=request.user.id)
+
+            return JsonResponse({'Status': "Success"}, status=status.HTTP_200_OK)
+
+        except IntegrityError as e:
+
+            return JsonResponse({'Status': "Failure", 'Reason': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 
