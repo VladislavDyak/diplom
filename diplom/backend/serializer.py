@@ -6,11 +6,16 @@ from .models import User, Category, Shop, ProductInfo, Product, ProductParameter
 class ContactSerializer(serializers.ModelSerializer):
     class Meta:
         model = Contact
-        fields = ('id', 'city', 'street', 'house', 'structure', 'building', 'apartment', 'user', 'phone')
-        read_only_fields = ('id',)
-        extra_kwargs = {
-            'user': {'write_only': True}
-        }
+        fields = ('id', 'city', 'street', 'house', 'structure', 'building', 'user','apartment',  'phone')
+        read_only_fields = ('id', 'user')
+
+
+    def create(self, validated_data):
+        print(self.context.get('user'))
+        return Contact.objects.create(**validated_data, user = self.context.get('user'))
+
+
+
 
 
 class UserSerializer(serializers.ModelSerializer):

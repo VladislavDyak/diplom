@@ -14,15 +14,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from ujson import loads
-from yaml import load, Loader, safe_load
+from yaml import safe_load
 from setuptools._distutils.util import strtobool
-
 from .models import ConfirmEmailToken, Category, Shop, Product, Order, OrderItem, ProductInfo, ProductParameter, \
     Contact, Parameter
 from .serializer import UserSerializer, CategorySerializer, ShopSerializer, ProductInfoSerializer, \
     OrderSerializer, OrderItemSerializer, ContactSerializer
 from .signals import new_order
-
 
 
 class RegisterAccount(APIView):
@@ -404,10 +402,8 @@ class ContactView(APIView):
     def post(self, request):
 
         if {'city', 'street', 'phone'}.issubset(request.data):
-
-            request.data.update({'user': request.user.id})
-
-            serializer = ContactSerializer(data=request.data)
+            print(request.user)
+            serializer = ContactSerializer(data=request.data, context={'user': request.user})
 
             if serializer.is_valid():
                 serializer.save()
