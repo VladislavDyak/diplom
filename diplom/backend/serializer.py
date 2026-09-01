@@ -15,9 +15,6 @@ class ContactSerializer(serializers.ModelSerializer):
         return Contact.objects.create(**validated_data, user = self.context.get('user'))
 
 
-
-
-
 class UserSerializer(serializers.ModelSerializer):
     contacts = ContactSerializer(read_only=True, many=True)
     password = serializers.CharField(write_only=True)
@@ -37,6 +34,8 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class CategorySerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='external_id')
+
     class Meta:
         model = Category
         fields = ('id', 'name',)
@@ -100,3 +99,23 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = ('id', 'ordered_items', 'state', 'dt', 'total_sum', 'contact',)
         read_only_fields = ('id',)
+
+
+class ImportProductSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    model = serializers.CharField()
+    price = serializers.DecimalField(max_digits=10, decimal_places=2)
+    quantity = serializers.IntegerField()
+    category = serializers.IntegerField()
+    price_rrc = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, default=0)
+    parameters = serializers.DictField(
+        required=False,
+        default=dict
+    )
+
+
+class ImportDataSerializer(serializers.Serializer):
+    shop = serializers.CharField()
+    categories = CategorySerializer(many=True)
+    goods = ImportProductSerializer(many=True)

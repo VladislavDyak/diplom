@@ -99,6 +99,7 @@ class Shop(models.Model):
 class Category(models.Model):
     name = models.CharField(max_length=100, verbose_name='Название')
     shops = models.ManyToManyField(Shop, verbose_name='Магазины', related_name='categories', blank=True)
+    external_id = models.IntegerField(verbose_name='Внешний ключ', unique=True, default=0)
 
     class Meta:
         verbose_name = "Категории"

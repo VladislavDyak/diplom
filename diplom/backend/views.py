@@ -1,5 +1,7 @@
 import json
 
+import requests
+import yaml
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.validators import URLValidator
@@ -16,12 +18,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from ujson import loads
-from yaml import safe_load
+from yaml import safe_load, YAMLError
 from setuptools._distutils.util import strtobool
 from .models import ConfirmEmailToken, Category, Shop, Product, Order, OrderItem, ProductInfo, ProductParameter, \
     Contact, Parameter
 from .serializer import UserSerializer, CategorySerializer, ShopSerializer, ProductInfoSerializer, \
     OrderSerializer, OrderItemSerializer, ContactSerializer
+from .services.import_service import import_shop_data
 from .signals import new_order
 
 
@@ -39,11 +42,16 @@ class RegisterAccount(APIView):
         try:
             user = serializer.save()
             ConfirmEmailToken.objects.create(user=user)
-            return JsonResponse({'Status': 'Success', 'message': f'Successfully registered! {user.pk}'}, status=status.HTTP_201_CREATED)
+            return JsonResponse({'Status': 'Success',
+                                 'message': f'Успешно зарегистрирован пользователь с ID {user.pk}'
+                                 }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             import traceback
-            return JsonResponse({'Status': 'Failure', 'message': str(e), 'trace': traceback.format_exc()}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return JsonResponse({'Status': 'Failure',
+                                 'Message': str(e),
+                                 'Trace': traceback.format_exc()},
+                                status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class ConfirmAccount(APIView):
@@ -64,8 +72,8 @@ class ConfirmAccount(APIView):
 
                 return JsonResponse({'Status': "Success"}, status=status.HTTP_200_OK)
             else:
-                return JsonResponse({'Status': "Failure", 'reason':'Invalid Email or Token'}, status=status.HTTP_403_FORBIDDEN)
-        return JsonResponse({'Status': "Failure", 'reason':'Email and Token can`t be Null'}, status=status.HTTP_403_FORBIDDEN)
+                return JsonResponse({'Status': "Failure", 'Reason':'Неверный Email или Token'}, status=status.HTTP_403_FORBIDDEN)
+        return JsonResponse({'Status': "Failure", 'reason':'Email и Token не могут быть Null'}, status=status.HTTP_403_FORBIDDEN)
 
 
 class AccountDetails(APIView):
@@ -87,7 +95,7 @@ class AccountDetails(APIView):
                 errors_array = []
                 for item in e.messages:
                     errors_array.append(item)
-                return JsonResponse({'Status':'Failure', 'errors': errors_array}, status=status.HTTP_403_FORBIDDEN)
+                return JsonResponse({'Status':'Failure', 'Errors': errors_array}, status=status.HTTP_403_FORBIDDEN)
 
             else:
                 request.user.set_password(request.data['password'])
@@ -98,7 +106,7 @@ class AccountDetails(APIView):
             user_serializer.save()
             return JsonResponse({'Status': "Success"}, status=status.HTTP_200_OK)
         else:
-            return JsonResponse({'Status': "Failure", 'reason':user_serializer.errors}, status=status.HTTP_401_UNAUTHORIZED)
+            return JsonResponse({'Status': "Failure", 'Reason':user_serializer.errors}, status=status.HTTP_401_UNAUTHORIZED)
 
 
 class LoginAccount(APIView):
@@ -145,6 +153,7 @@ class CategoryView(ListAPIView):
 
     authentication_classes = [TokenAuthentication]
     permission_classes = [IsAuthenticated]
+
 
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
@@ -209,7 +218,7 @@ class BasketView(APIView):
                 items_dict = json.loads(items_string)
 
             except ValueError as e:
-                return JsonResponse({'Status': "Failure", 'Причина':str(e)}, status=400)
+                return JsonResponse({'Status': "Failure", 'Reason':str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
             else:
                 basket, _ = Order.objects.get_or_create(user_id=request.user.id, state = 'basket')
@@ -222,16 +231,17 @@ class BasketView(APIView):
                         try:
                             serializer.save()
                         except IntegrityError as e:
-                            return JsonResponse({'Status': "Failure", 'Причина': str(e)}, status=400)
+                            return JsonResponse({'Status': "Failure", 'Причина': str(e)}, status=status.HTTP_400_BAD_REQUEST)
                         else:
                             objects_created += 1
                     else:
-                        return JsonResponse({'Status': "Failure", 'Причина': serializer.errors}, status=400)
+                        return JsonResponse({'Status': "Failure", 'Причина': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-            return JsonResponse({'Status': "Success", "Созданы объекты: " : objects_created}, status=200)
+            return JsonResponse({'Status': "Success", "Созданы объекты: " : objects_created}, status=status.HTTP_200_OK)
+
         return JsonResponse({
             "Status": 'Failure',
-            "reason": "Указаны не все необходимые аргументы"
+            "Reason": "Указаны не все необходимые аргументы"
         })
 
 
@@ -286,57 +296,53 @@ class PartnerUpdateView(APIView):
 
     def post(self, request):
 
-
         if request.user.type != 'shop':
-            return JsonResponse({'Status': "Failure", 'reason': 'Not a shop'}, status=403)
+            return JsonResponse({'Status': "Failure", 'Reason': 'Доступно только для магазинов'}, status=status.HTTP_403_FORBIDDEN)
 
         url = request.data.get('url')
-        if url:
-            validate_url = URLValidator()
+        if not url:
 
-            try:
-                validate_url(url)
-            except ValidationError as e:
-                return JsonResponse({'Status': "Failure", 'reason': str(e)}, status=400)
-            else:
+            return JsonResponse({
+                'Status': 'Failure',
+                'Reason': 'URL не указан!'
+            })
 
-                stream = get(url).content
+        validate_url = URLValidator()
 
-                data = safe_load(stream)
+        try:
+            validate_url(url)
+        except ValidationError as e:
+            return JsonResponse({'Status': "Failure",
+                                 'Reason': str(e)}, status=status.HTTP_403_FORBIDDEN)
 
-                shop, _ = Shop.objects.get_or_create(name=data['shop'], user_id=request.user.id)
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = yaml.safe_load(response.content)
 
-                for category in data['categories']:
-                    category_object, _ = Category.objects.get_or_create(id = category['id'],name=category['name'])
-                    category_object.shops.add(shop.id)
-                    category_object.save()
+        except requests.RequestException as e:
+            return JsonResponse({'Status': "Failure",
+                                 'Reason': f'Ошибка загрузки {str(e)}'},
+                                status=status.HTTP_403_FORBIDDEN)
+        except YAMLError as e:
+            return JsonResponse({'Status': "Failure",
+                                 'Reason': f'Ошибка парсинга YAML {str(e)}'},)
 
-                ProductInfo.objects.filter(shop_id=shop.id).delete()
+        result = import_shop_data(data, request.user.id)
 
-                for item in data['goods']:
+        if result['Status'] == True:
+            return JsonResponse({'Status': "Success",
+                                 'URL': url,
+                                 'Shop': result['Shop_name'],
+                                 'Message': result['Message'],},
+                                status=status.HTTP_200_OK)
+        else:
+            return JsonResponse({'Status': "Failure",
+                                 'Reason': result['Message']},
+                                status= status.HTTP_400_BAD_REQUEST)
 
-                    product, _ = Product.objects.get_or_create(name = item['name'], category_id = item['category'])
 
-                    product_info = ProductInfo.objects.create(
-                        product_id = product.id,
-                        external_id = item['id'],
-                        name = item['name'],
-                        model=item['model'],
-                        price = item['price'],
-                        quantity = item['quantity'],
-                        shop_id = shop.id,
-                        price_rrc = item['price_rrc'],
-                    )
 
-                    for name, value in item['parameters'].items():
-                        parameter_object, _ = Parameter.objects.get_or_create(name=name)
-                        ProductParameter.objects.create(
-                            product_info = product_info,
-                            parameter_id = parameter_object.id,
-                            value = value,
-                        )
-                return JsonResponse({'Status': "Success", "Partner URL: " : url}, status=200)
-        return JsonResponse({'Status': "Failure", 'reason': 'Not all required arguments were specified'}, status=400)
 
 
 class PartnerStateView(APIView):
@@ -347,7 +353,7 @@ class PartnerStateView(APIView):
     def get(self, request):
 
         if request.user.type != 'shop':
-            return JsonResponse({'Status': "Failure", 'reason': 'Not a shop'}, status=status.HTTP_403_FORBIDDEN)
+            return JsonResponse({'Status': "Failure", 'Reason': 'Доступно только для магазинов'}, status=status.HTTP_403_FORBIDDEN)
 
         shop = request.user.shop
 
@@ -358,7 +364,7 @@ class PartnerStateView(APIView):
     def post(self, request):
 
         if request.user.type != 'shop':
-            return JsonResponse({'Status': "Failure", 'reason': 'Not a shop'}, status=status.HTTP_403_FORBIDDEN)
+            return JsonResponse({'Status': "Failure", 'Reason': 'Доступно только для магазинов'}, status=status.HTTP_403_FORBIDDEN)
 
         state = request.data.get('state')
         if state:
@@ -366,9 +372,11 @@ class PartnerStateView(APIView):
                 Shop.objects.filter(user_id = request.user.id).update(state = strtobool(state))
                 return JsonResponse({'Status': "Success"}, status=200)
             except ValueError as e:
-                return JsonResponse({'Status': "Failure", 'reason': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                return JsonResponse({'Status': "Failure", 'Reason': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return JsonResponse({'Status': "Failure", 'reason': 'Not all required arguments were specified'}, status=status.HTTP_400_BAD_REQUEST)
+        return JsonResponse({'Status': "Failure",
+                             'Reason': 'Не все требуемые аргументы переданы'
+                             }, status=status.HTTP_400_BAD_REQUEST)
 
 
 class PartnerOrdersView(APIView):
@@ -379,13 +387,15 @@ class PartnerOrdersView(APIView):
     def get(self, request):
 
         if request.user.type != 'shop':
-            return JsonResponse({'Status': "Failure", 'Reason': 'Only for shops'}, status=status.HTTP_403_FORBIDDEN)
+            return JsonResponse({'Status': "Failure",
+                                 'Reason': 'Доступно только для магазинов'
+                                 }, status=status.HTTP_403_FORBIDDEN)
 
         order =Order.objects.filter(
-            ordered_items__product_info__shop__user_id=request.user.id).exclude(state='basket').prefetch_related(
-            'ordered_items__product_info__product__category',
-            'ordered_items__product_info__product_parameters__parameter').select_related('contact').annotate(
-            total_sum=Sum(F('ordered_items__quantity') * F('ordered_items__product_info__price'))).distinct()
+            order_items__product_info__shop__user_id=request.user.id).exclude(state='basket').prefetch_related(
+            'order_items__product_info__product__category',
+            'order_items__product_info__product_parameters__parameter').select_related('contact').annotate(
+            total_sum=Sum(F('order_items__quantity') * F('order_items__product_info__price'))).distinct()
 
         serializer = OrderSerializer(order, many=True)
         return Response(serializer.data)
@@ -412,9 +422,9 @@ class ContactView(APIView):
                 serializer.save()
                 return JsonResponse({'Status': "Success"}, status=status.HTTP_201_CREATED)
             else:
-                return JsonResponse({'Status': "Failure", 'reason': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+                return JsonResponse({'Status': "Failure", 'Reason': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        return JsonResponse({'Status': "Failure", 'reason': 'Not all required arguments were specified'}, status=status.HTTP_400_BAD_REQUEST)
+        return JsonResponse({'Status': "Failure", 'Reason': 'Не все требуемые аргументы переданы'}, status=status.HTTP_400_BAD_REQUEST)
 
 
     def delete(self, request):
@@ -434,9 +444,9 @@ class ContactView(APIView):
 
                 if object_deleted:
                     deleted_count = Contact.objects.filter(query).delete()[0]
-                    return JsonResponse({'Status': "Success", "Deleted Items":deleted_count}, status=200)
+                    return JsonResponse({'Status': "Success", "Deleted Items":deleted_count}, status=status.HTTP_200_OK)
 
-        return JsonResponse({'Status': "Failure", 'reason': 'Not all required arguments were specified'}, status=400)
+        return JsonResponse({'Status': "Failure", 'Reason': 'Не все требуемые аргументы переданы'}, status=status.HTTP_400_BAD_REQUEST)
 
     def put(self, request):
 
@@ -447,11 +457,15 @@ class ContactView(APIView):
                     serializer = ContactSerializer(contact, data=request.data, partial=True)
                     if serializer.is_valid():
                         serializer.save()
-                        return JsonResponse({'Status': "Success"}, status=200)
+                        return JsonResponse({'Status': "Success"}, status=status.HTTP_201_CREATED)
                     else:
-                        return JsonResponse({'Status': "Failure", 'reason': serializer.errors}, status=400)
+                        return JsonResponse({'Status': "Failure",
+                                             'Reason': serializer.errors},
+                                            status=status.HTTP_400_BAD_REQUEST)
 
-        return JsonResponse({'Status': "Failure", 'reason': 'Not all required arguments were specified'}, status=400)
+        return JsonResponse({'Status': "Failure",
+                             'Reason': 'Не все требуемые аргументы переданы'
+                             }, status=status.HTTP_400_BAD_REQUEST)
 
 
 class OrderView(APIView):
