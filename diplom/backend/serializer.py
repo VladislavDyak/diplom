@@ -119,3 +119,40 @@ class ImportDataSerializer(serializers.Serializer):
     shop = serializers.CharField()
     categories = CategorySerializer(many=True)
     goods = ImportProductSerializer(many=True)
+
+
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField()
+
+    def validate_email(self, value):
+        return value.lower().strip()
+
+
+class ContactViewSerializer(serializers.Serializer):
+    city = serializers.CharField()
+    street = serializers.CharField()
+    phone = serializers.CharField()
+
+
+class OrderViewSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    contact = ContactSerializer(read_only=True)
+
+
+class ConfirmEmailTokenSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    token = serializers.CharField()
+
+
+class BasketItemSerializer(serializers.Serializer):
+    product_info = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class BasketSerializer(serializers.Serializer):
+    items = BasketItemSerializer(many=True)
+
+
+class PartnerUpdateSerializer(serializers.Serializer):
+    url = serializers.URLField()

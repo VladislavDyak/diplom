@@ -1,8 +1,6 @@
-import json
-import requests
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Q, F, Sum
 from rest_framework import status, permissions
 from rest_framework.authentication import TokenAuthentication
@@ -14,18 +12,31 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from ujson import loads
 from setuptools._distutils.util import strtobool
-from .models import ConfirmEmailToken, Category, Shop, Product, Order, OrderItem, ProductInfo, ProductParameter, \
-    Contact, Parameter
+from .models import ConfirmEmailToken, Category, Shop, Order, OrderItem, ProductInfo, \
+    Contact
+from .permissions import IsShopUser
 from .serializer import UserSerializer, CategorySerializer, ShopSerializer, ProductInfoSerializer, \
-    OrderSerializer, OrderItemSerializer, ContactSerializer
+    OrderSerializer, ContactSerializer, LoginSerializer, ContactViewSerializer, \
+    OrderViewSerializer, ConfirmEmailTokenSerializer, BasketSerializer, PartnerUpdateSerializer
 from .signals import new_order
 from .tasks import import_shop_from_url
 
+
+def order_query_set():
+    return (Order.objects.exclude(state='basket')
+            .prefetch_related(
+            'order_items__product_info__product__category',
+            'order_items__product_info__product_parameters__parameter')
+            .select_related('contact')
+            .annotate(
+            total_sum=Sum(F('order_items__quantity') * F('order_items__product_info__price')))
+            .distinct())
 
 class RegisterAccount(APIView):
 
     permission_classes = (permissions.AllowAny,)
 
+    @transaction.atomic
     def post(self, request):
 
         serializer = UserSerializer(data=request.data)
@@ -42,11 +53,11 @@ class RegisterAccount(APIView):
                                             f' {token_obj.key}'
                                  }, status=status.HTTP_201_CREATED)
 
-        except Exception as e:
+        except IntegrityError as e:
             import traceback
             return Response({'status': 'error',
                                  'message': str(e),
-                                 'trace': traceback.format_exc()},
+                             },
                                 status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -54,22 +65,25 @@ class ConfirmAccount(APIView):
 
     permission_classes = (permissions.AllowAny,)
 
+    @transaction.atomic
     def post(self, request)->Response:
-        if {'email', 'token'}.issubset(request.data):
-            token = ConfirmEmailToken.objects.filter(
-                user__email=request.data['email'].strip().lower(),
-                key=request.data['token']).first()
+        serializer = ConfirmEmailTokenSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'status': 'error', 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
+        token = ConfirmEmailToken.objects.filter(
+            user__email=request.data['email'].strip().lower(),
+            key=request.data['token']).first()
 
-            if token:
-                token.user.is_active = True
-                token.user.save()
-                token.delete()
+        if token:
+            token.user.is_active = True
+            token.user.save()
+            token.delete()
 
-                return Response({'status': 'success'}, status=status.HTTP_200_OK)
-            else:
-                return Response({'status': 'error', 'message':'Неверный Email или Token'}, status=status.HTTP_403_FORBIDDEN)
-        return Response({'status': 'error', 'message':'Email и Token не могут быть Null'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'status': 'success'}, status=status.HTTP_200_OK)
+        else:
+            return Response({'status': 'error', 'message': 'Неверный Email или Token'},
+                            status=status.HTTP_403_FORBIDDEN)
 
 
 class AccountDetails(APIView):
@@ -111,40 +125,42 @@ class LoginAccount(APIView):
 
     def post(self, request):
 
-        if {'email', 'password'}.issubset(request.data):
+        serializer = LoginSerializer(data=request.data)
 
-            email = request.data['email'].strip().lower()
-            password = request.data['password']
+        if not serializer.is_valid():
+            return Response({'status':'error', 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-            if not email or not password:
-                return Response({
-                    'status': 'error', 'message':'Почта и пароль не должны быть пустыми'
-                }, status=status.HTTP_400_BAD_REQUEST)
+        email = serializer.validated_data['email']
+        password = serializer.validated_data['password']
 
-            user = authenticate(request=request, email=email, password=password)
-
-            if not user:
-                return Response({
-                    'status': 'error',
-                    'message':'Неверные почта или пароль'
-                }, status=status.HTTP_403_FORBIDDEN)
-
-            if not user.is_active:
-                return Response({
-                    'status': 'error',
-                    'message':'Аккаунт не подтверждён'
-                }, status=status.HTTP_403_FORBIDDEN)
-
-            token, created = Token.objects.get_or_create(user=user)
-
+        if not email or not password:
             return Response({
-                'status': 'success',
-                'data':{
-                    'token': token.key,
-                    'user': UserSerializer(user).data,
-                },
-            }, status=status.HTTP_200_OK)
-        return Response({'status': 'error', 'message':'Не введены учётные данные'}, status=status.HTTP_401_UNAUTHORIZED)
+                'status': 'error', 'message': 'Почта и пароль не должны быть пустыми'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        user = authenticate(request=request, email=email, password=password)
+
+        if not user:
+            return Response({
+                'status': 'error',
+                'message': 'Неверные почта или пароль'
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        if not user.is_active:
+            return Response({
+                'status': 'error',
+                'message': 'Аккаунт не подтверждён'
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        token, created = Token.objects.get_or_create(user=user)
+
+        return Response({
+            'status': 'success',
+            'data': {
+                'token': token.key,
+                'user': UserSerializer(user).data,
+            },
+        }, status=status.HTTP_200_OK)
 
 
 class CategoryView(ListAPIView):
@@ -209,38 +225,25 @@ class BasketView(APIView):
 
     def post(self, request):
 
-        items_string = request.data.get('items')
+        serializer = BasketSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'status': 'error', 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        if items_string:
-            try:
-                items_dict = json.loads(items_string)
 
-            except ValueError as e:
-                return Response({'status': 'error', 'message':str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        items = serializer.validated_data['items']
 
-            else:
-                basket, _ = Order.objects.get_or_create(user_id=request.user.id, state = 'basket')
-                objects_created = 0
-                for order_item in items_dict:
-                    order_item.update({'order': basket.id})
-                    serializer = OrderItemSerializer(data = order_item)
-                    print(order_item)
-                    if serializer.is_valid():
-                        try:
-                            serializer.save()
-                        except IntegrityError as e:
-                            return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-                        else:
-                            objects_created += 1
-                    else:
-                        return Response({'status': 'error', 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-            return Response({'status': 'success', 'data' : objects_created}, status=status.HTTP_200_OK)
+        basket, _ = Order.objects.get_or_create(user_id=request.user.id, state = 'basket')
+        objects_created = 0
+        for item in items:
+            OrderItem.objects.create(
+                order=basket,
+                quantity=item['quantity'],
+                product_info_id = item['product_info']
+            )
+            objects_created += 1
 
-        return Response({
-            'status': 'error',
-            'message': "Указаны не все необходимые аргументы"
-        })
+        return Response({'status': 'success', 'objects_created': objects_created})
 
 
     def delete(self, request):
@@ -290,22 +293,18 @@ class BasketView(APIView):
 class PartnerUpdateView(APIView):
 
     authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        IsShopUser,
+        ]
 
     def post(self, request):
 
-        if request.user.type != 'shop':
-            return Response({'status': 'error',
-                                 'message': 'Доступно только для магазинов'},
-                                status=status.HTTP_403_FORBIDDEN)
+        serializer = PartnerUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'status': 'error', 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        url = request.data.get('url')
-        if not url:
-
-            return Response({
-                'status': 'error',
-                'message': 'URL не указан!'
-            })
+        url = serializer.validated_data['url']
 
         task = import_shop_from_url.delay(request.user.id, url)
 
@@ -320,29 +319,27 @@ class PartnerUpdateView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-
-
-
 class PartnerStateView(APIView):
 
     authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated,
+                          IsShopUser]
 
     def get(self, request):
 
-        if request.user.type != 'shop':
-            return Response({'status': 'error', 'message': 'Доступно только для магазинов'}, status=status.HTTP_403_FORBIDDEN)
+        shop = Shop.objects.filter(user=request.user).first()
 
-        shop = request.user.shop
+        if not shop:
+            return Response({
+                'status': 'error',
+                'message': 'Магазин не найден'
+            }, status=status.HTTP_404_NOT_FOUND)
 
         serializer = ShopSerializer(shop)
 
         return Response(serializer.data)
 
     def post(self, request):
-
-        if request.user.type != 'shop':
-            return Response({'status': 'error', 'message': 'Доступно только для магазинов'}, status=status.HTTP_403_FORBIDDEN)
 
         state = request.data.get('state')
         if state:
@@ -369,11 +366,7 @@ class PartnerOrdersView(APIView):
                                  'message': 'Доступно только для магазинов'
                                  }, status=status.HTTP_403_FORBIDDEN)
 
-        order =Order.objects.filter(
-            order_items__product_info__shop__user_id=request.user.id).exclude(state='basket').prefetch_related(
-            'order_items__product_info__product__category',
-            'order_items__product_info__product_parameters__parameter').select_related('contact').annotate(
-            total_sum=Sum(F('order_items__quantity') * F('order_items__product_info__price'))).distinct()
+        order = order_query_set().filter(order_items__product_info__shop__user=request.user)
 
         serializer = OrderSerializer(order, many=True)
         return Response(serializer.data)
@@ -392,17 +385,20 @@ class ContactView(APIView):
 
     def post(self, request):
 
-        if {'city', 'street', 'phone'}.issubset(request.data):
-            print(request.user)
-            serializer = ContactSerializer(data=request.data, context={'user': request.user})
+        serializer = ContactViewSerializer(data=request.data)
 
-            if serializer.is_valid():
-                serializer.save()
-                return Response({'status': 'success'}, status=status.HTTP_201_CREATED)
-            else:
-                return Response({'status': 'error', 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        if not serializer.is_valid():
+            return Response({'status': 'error','message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({'status': 'error', 'message': 'Не все требуемые аргументы переданы'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = ContactSerializer(data=request.data, context={'user': request.user})
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'status': 'success'}, status=status.HTTP_201_CREATED)
+        else:
+            return Response({'status': 'error', 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+
 
 
     def delete(self, request):
@@ -453,25 +449,16 @@ class OrderView(APIView):
 
     def get(self, request):
 
-        order = Order.objects.filter(user_id=request.user.id).exclude(state='basket').prefetch_related(
-            'order_items__product_info__product__category',
-            'order_items__product_info__product_parameters__parameter').select_related('contact').annotate(
-            total_sum=Sum(F('order_items__quantity') * F('order_items__product_info__price'))).distinct()
+        order = order_query_set().filter(user=request.user)
+
         serializer = OrderSerializer(order, many=True)
         return Response(serializer.data)
 
     def post(self, request):
 
-        if not {'id', 'contact'}.issubset(request.data):
-            return Response({
-                                    'status': 'error',
-                                    'message': 'Не указаны в переданных данных ID или Contact'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-
-        if not request.data['id'].isdigit():
-
-            return Response({'status': 'error', 'message': 'ID должен быть числом'}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = OrderViewSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'status': 'error','message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
 
@@ -480,7 +467,14 @@ class OrderView(APIView):
             if not order:
                 return Response({'status': 'error', 'message': 'Заказ не найден'}, status=status.HTTP_404_NOT_FOUND)
 
-            order.contact_id = request.data['contact']
+            contact = Contact.objects.filter(id = request.data['contact'], user = request.user).first()
+            if not contact:
+                return Response({
+                    'status': 'error',
+                    'message': 'Контакт не существует'
+                },status=status.HTTP_404_NOT_FOUND)
+
+            order.contact = contact
             order.state = 'new'
             order.save(update_fields=['contact_id', 'state'])
 
