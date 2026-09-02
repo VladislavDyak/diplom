@@ -4,7 +4,6 @@ from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.db import IntegrityError
 from django.db.models import Q, F, Sum
-from django.http import JsonResponse
 from rest_framework import status, permissions
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
@@ -30,26 +29,24 @@ class RegisterAccount(APIView):
     def post(self, request):
 
         serializer = UserSerializer(data=request.data)
-        print(request.data)
-        print(serializer.is_valid())
 
         if not serializer.is_valid():
-            return JsonResponse({'Status':'Failure', 'Reason': serializer.errors},
+            return Response({'status':'error', 'message': serializer.errors},
                                 status=status.HTTP_400_BAD_REQUEST)
 
         try:
             user = serializer.save()
             token_obj = ConfirmEmailToken.objects.create(user=user)
-            return JsonResponse({'Status': 'Success',
+            return Response({'status': 'success',
                                  'message': f'Успешно зарегистрирован пользователь с ID {user.pk} с токеном'
                                             f' {token_obj.key}'
                                  }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
             import traceback
-            return JsonResponse({'Status': 'Failure',
-                                 'Message': str(e),
-                                 'Trace': traceback.format_exc()},
+            return Response({'status': 'error',
+                                 'message': str(e),
+                                 'trace': traceback.format_exc()},
                                 status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -57,7 +54,7 @@ class ConfirmAccount(APIView):
 
     permission_classes = (permissions.AllowAny,)
 
-    def post(self, request)->JsonResponse:
+    def post(self, request)->Response:
         if {'email', 'token'}.issubset(request.data):
             token = ConfirmEmailToken.objects.filter(
                 user__email=request.data['email'].strip().lower(),
@@ -69,10 +66,10 @@ class ConfirmAccount(APIView):
                 token.user.save()
                 token.delete()
 
-                return JsonResponse({'Status': "Success"}, status=status.HTTP_200_OK)
+                return Response({'status': 'success'}, status=status.HTTP_200_OK)
             else:
-                return JsonResponse({'Status': "Failure", 'Reason':'Неверный Email или Token'}, status=status.HTTP_403_FORBIDDEN)
-        return JsonResponse({'Status': "Failure", 'reason':'Email и Token не могут быть Null'}, status=status.HTTP_403_FORBIDDEN)
+                return Response({'status': 'error', 'message':'Неверный Email или Token'}, status=status.HTTP_403_FORBIDDEN)
+        return Response({'status': 'error', 'message':'Email и Token не могут быть Null'}, status=status.HTTP_403_FORBIDDEN)
 
 
 class AccountDetails(APIView):
@@ -82,7 +79,7 @@ class AccountDetails(APIView):
 
     def get(self, request):
         serializer = UserSerializer(request.user).data
-        return JsonResponse(serializer, status=status.HTTP_200_OK)
+        return Response(serializer, status=status.HTTP_200_OK)
 
     def post(self, request):
         if 'password' in request.data:
@@ -94,7 +91,7 @@ class AccountDetails(APIView):
                 errors_array = []
                 for item in e.messages:
                     errors_array.append(item)
-                return JsonResponse({'Status':'Failure', 'Errors': errors_array}, status=status.HTTP_403_FORBIDDEN)
+                return Response({'status':'error', 'Errors': errors_array}, status=status.HTTP_403_FORBIDDEN)
 
             else:
                 request.user.set_password(request.data['password'])
@@ -103,9 +100,9 @@ class AccountDetails(APIView):
 
         if user_serializer.is_valid():
             user_serializer.save()
-            return JsonResponse({'Status': "Success"}, status=status.HTTP_200_OK)
+            return Response({'status': 'success'}, status=status.HTTP_200_OK)
         else:
-            return JsonResponse({'Status': "Failure", 'Reason':user_serializer.errors}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response({'status': 'error', 'message':user_serializer.errors}, status=status.HTTP_401_UNAUTHORIZED)
 
 
 class LoginAccount(APIView):
@@ -120,32 +117,32 @@ class LoginAccount(APIView):
             password = request.data['password']
 
             if not email or not password:
-                return JsonResponse({
-                    'Status': "Failure", 'reason':'Почта и пароль не должны быть пустыми'
+                return Response({
+                    'status': 'error', 'message':'Почта и пароль не должны быть пустыми'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             user = authenticate(request=request, email=email, password=password)
 
             if not user:
-                return JsonResponse({
-                    'Status': "Failure",
-                    'reason':'Неверные почта или пароль'
+                return Response({
+                    'status': 'error',
+                    'message':'Неверные почта или пароль'
                 }, status=status.HTTP_403_FORBIDDEN)
 
             if not user.is_active:
-                return JsonResponse({
-                    'Status': "Failure",
-                    'reason':'Аккаунт не подтверждён'
+                return Response({
+                    'status': 'error',
+                    'message':'Аккаунт не подтверждён'
                 }, status=status.HTTP_403_FORBIDDEN)
 
             token, created = Token.objects.get_or_create(user=user)
 
-            return JsonResponse({
-                'Status': "Success",
+            return Response({
+                'status': 'success',
                 'token': token.key,
                 'user': UserSerializer(user).data,
             }, status=status.HTTP_200_OK)
-        return JsonResponse({'Status': "Failure", 'reason':'Не введены учётные данные'}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response({'status': 'error', 'message':'Не введены учётные данные'}, status=status.HTTP_401_UNAUTHORIZED)
 
 
 class CategoryView(ListAPIView):
@@ -217,7 +214,7 @@ class BasketView(APIView):
                 items_dict = json.loads(items_string)
 
             except ValueError as e:
-                return JsonResponse({'Status': "Failure", 'Reason':str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'status': 'error', 'message':str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
             else:
                 basket, _ = Order.objects.get_or_create(user_id=request.user.id, state = 'basket')
@@ -230,16 +227,16 @@ class BasketView(APIView):
                         try:
                             serializer.save()
                         except IntegrityError as e:
-                            return JsonResponse({'Status': "Failure", 'Причина': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                            return Response({'status': 'error', 'Причина': str(e)}, status=status.HTTP_400_BAD_REQUEST)
                         else:
                             objects_created += 1
                     else:
-                        return JsonResponse({'Status': "Failure", 'Причина': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+                        return Response({'status': 'error', 'Причина': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-            return JsonResponse({'Status': "Success", "Созданы объекты: " : objects_created}, status=status.HTTP_200_OK)
+            return Response({'status': 'success', "Созданы объекты: " : objects_created}, status=status.HTTP_200_OK)
 
-        return JsonResponse({
-            "Status": 'Failure',
+        return Response({
+            "status": 'error',
             "Reason": "Указаны не все необходимые аргументы"
         })
 
@@ -255,16 +252,16 @@ class BasketView(APIView):
             objects_deleted = 0
 
             for order_item_id in items_list:
-                if order_item_id.is_digit():
+                if order_item_id.isdigit():
                     query = query | Q(order_id = basket.id, id=order_item_id)
                     objects_deleted += 1
 
             if objects_deleted:
                 deleted_count = OrderItem.objects.filter(query).delete()[0]
 
-                return JsonResponse({'Status': "Success", "Deleted Objects" : deleted_count}, status=200)
+                return Response({'status': 'success', "Deleted Objects" : deleted_count}, status=200)
 
-        return JsonResponse({'Status': "Failure", "Reason" : "Not all required arguments were specified"}, status=400)
+        return Response({'status': 'error', "Reason" : "Not all required arguments were specified"}, status=400)
 
 
     def put(self, request):
@@ -274,7 +271,7 @@ class BasketView(APIView):
             try:
                 items_dict = loads(items_string)
             except ValueError:
-                return JsonResponse({'Status': "Failure", 'reason': 'Invalid JSON'}, status=400)
+                return Response({'status': 'error', 'message': 'Invalid JSON'}, status=400)
             else:
                 basket, _ = Order.objects.get_or_create(user_id=request.user.id, state = 'basket')
                 objects_updated = 0
@@ -284,8 +281,8 @@ class BasketView(APIView):
                             quantity = order_item['quantity']
                         )
 
-                return JsonResponse({'Status': "Success", "Updated Objects: " : objects_updated}, status=200)
-        return JsonResponse({'Status': "Failure", 'reason': 'Not all required arguments were specified'}, status=400)
+                return Response({'status': 'success', "Updated Objects: " : objects_updated}, status=200)
+        return Response({'status': 'error', 'message': 'Not all required arguments were specified'}, status=400)
 
 
 class PartnerUpdateView(APIView):
@@ -296,22 +293,22 @@ class PartnerUpdateView(APIView):
     def post(self, request):
 
         if request.user.type != 'shop':
-            return JsonResponse({'Status': "Failure",
-                                 'Reason': 'Доступно только для магазинов'},
+            return Response({'status': 'error',
+                                 'message': 'Доступно только для магазинов'},
                                 status=status.HTTP_403_FORBIDDEN)
 
         url = request.data.get('url')
         if not url:
 
-            return JsonResponse({
-                'Status': 'Failure',
-                'Reason': 'URL не указан!'
+            return Response({
+                'status': 'error',
+                'message': 'URL не указан!'
             })
 
         task = import_shop_from_url.delay(request.user.id, url)
 
-        return JsonResponse({
-            'Status': "Accepted",
+        return Response({
+            'status': "Accepted",
             'Task ID': task.id,
             'Message': 'Импорт в фоновом режиме'
 
@@ -329,7 +326,7 @@ class PartnerStateView(APIView):
     def get(self, request):
 
         if request.user.type != 'shop':
-            return JsonResponse({'Status': "Failure", 'Reason': 'Доступно только для магазинов'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'status': 'error', 'message': 'Доступно только для магазинов'}, status=status.HTTP_403_FORBIDDEN)
 
         shop = request.user.shop
 
@@ -340,18 +337,18 @@ class PartnerStateView(APIView):
     def post(self, request):
 
         if request.user.type != 'shop':
-            return JsonResponse({'Status': "Failure", 'Reason': 'Доступно только для магазинов'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({'status': 'error', 'message': 'Доступно только для магазинов'}, status=status.HTTP_403_FORBIDDEN)
 
         state = request.data.get('state')
         if state:
             try:
                 Shop.objects.filter(user_id = request.user.id).update(state = strtobool(state))
-                return JsonResponse({'Status': "Success"}, status=200)
+                return Response({'status': 'success'}, status=200)
             except ValueError as e:
-                return JsonResponse({'Status': "Failure", 'Reason': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return JsonResponse({'Status': "Failure",
-                             'Reason': 'Не все требуемые аргументы переданы'
+        return Response({'status': 'error',
+                             'message': 'Не все требуемые аргументы переданы'
                              }, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -363,8 +360,8 @@ class PartnerOrdersView(APIView):
     def get(self, request):
 
         if request.user.type != 'shop':
-            return JsonResponse({'Status': "Failure",
-                                 'Reason': 'Доступно только для магазинов'
+            return Response({'status': 'error',
+                                 'message': 'Доступно только для магазинов'
                                  }, status=status.HTTP_403_FORBIDDEN)
 
         order =Order.objects.filter(
@@ -396,11 +393,11 @@ class ContactView(APIView):
 
             if serializer.is_valid():
                 serializer.save()
-                return JsonResponse({'Status': "Success"}, status=status.HTTP_201_CREATED)
+                return Response({'status': 'success'}, status=status.HTTP_201_CREATED)
             else:
-                return JsonResponse({'Status': "Failure", 'Reason': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'status': 'error', 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        return JsonResponse({'Status': "Failure", 'Reason': 'Не все требуемые аргументы переданы'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'status': 'error', 'message': 'Не все требуемые аргументы переданы'}, status=status.HTTP_400_BAD_REQUEST)
 
 
     def delete(self, request):
@@ -420,9 +417,9 @@ class ContactView(APIView):
 
                 if object_deleted:
                     deleted_count = Contact.objects.filter(query).delete()[0]
-                    return JsonResponse({'Status': "Success", "Deleted Items":deleted_count}, status=status.HTTP_200_OK)
+                    return Response({'status': 'success', "Deleted Items":deleted_count}, status=status.HTTP_200_OK)
 
-        return JsonResponse({'Status': "Failure", 'Reason': 'Не все требуемые аргументы переданы'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'status': 'error', 'message': 'Не все требуемые аргументы переданы'}, status=status.HTTP_400_BAD_REQUEST)
 
     def put(self, request):
 
@@ -433,14 +430,14 @@ class ContactView(APIView):
                     serializer = ContactSerializer(contact, data=request.data, partial=True)
                     if serializer.is_valid():
                         serializer.save()
-                        return JsonResponse({'Status': "Success"}, status=status.HTTP_201_CREATED)
+                        return Response({'status': 'success'}, status=status.HTTP_201_CREATED)
                     else:
-                        return JsonResponse({'Status': "Failure",
-                                             'Reason': serializer.errors},
+                        return Response({'status': 'error',
+                                             'message': serializer.errors},
                                             status=status.HTTP_400_BAD_REQUEST)
 
-        return JsonResponse({'Status': "Failure",
-                             'Reason': 'Не все требуемые аргументы переданы'
+        return Response({'status': 'error',
+                             'message': 'Не все требуемые аргументы переданы'
                              }, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -461,22 +458,22 @@ class OrderView(APIView):
     def post(self, request):
 
         if not {'id', 'contact'}.issubset(request.data):
-            return JsonResponse({
-                                    'Status': "Failure",
-                                    'Reason': 'Не указаны в переданных данных ID или Contact'
+            return Response({
+                                    'status': 'error',
+                                    'message': 'Не указаны в переданных данных ID или Contact'
             }, status=status.HTTP_400_BAD_REQUEST)
 
 
         if not request.data['id'].isdigit():
 
-            return JsonResponse({'Status': "Failure", 'Reason': 'ID должен быть числом'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'status': 'error', 'message': 'ID должен быть числом'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
 
             order = Order.objects.filter(user_id=request.user.id, id = request.data['id'], state = 'basket',).first()
 
             if not order:
-                return JsonResponse({'Status': 'Failure', 'Reason': 'Заказ не найден'}, status=status.HTTP_404_NOT_FOUND)
+                return Response({'status': 'error', 'message': 'Заказ не найден'}, status=status.HTTP_404_NOT_FOUND)
 
             order.contact_id = request.data['contact']
             order.state = 'new'
@@ -484,11 +481,11 @@ class OrderView(APIView):
 
             new_order.send(sender=self.__class__, user_id=request.user.id)
 
-            return JsonResponse({'Status': "Success"}, status=status.HTTP_200_OK)
+            return Response({'status': 'success'}, status=status.HTTP_200_OK)
 
         except IntegrityError as e:
 
-            return JsonResponse({'Status': "Failure", 'Reason': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 
