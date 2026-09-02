@@ -5,6 +5,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      - DJANGO_SETTINGS_MODULE=diplom.settings
+      - REDIS_URL=${REDIS_URL}
     container_name: diplom
     command: >
       sh -c "python manage.py migrate &&
@@ -47,10 +50,16 @@ services:
       - web
 
   redis:
-    image: redis:6-alpine
+    image: redis:alpine
     ports:
       - "6379:6379"
     command: redis-server --appendonly yes
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
   celery:
     build: .
@@ -63,7 +72,7 @@ services:
     environment:
       - DJANGO_SETTINGS_MODULE=diplom.settings
       - REDIS_URL=${REDIS_URL}
-      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_DB}:${DB_PORT}/diplom
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DB_HOST}:${DB_PORT}/${POSTGRES_DB}
     restart: unless-stopped
 
 

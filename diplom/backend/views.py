@@ -30,17 +30,19 @@ class RegisterAccount(APIView):
     def post(self, request):
 
         serializer = UserSerializer(data=request.data)
+        print(request.data)
+        print(serializer.is_valid())
 
         if not serializer.is_valid():
-            return JsonResponse({'Status':'Failure', 'Reason': "Несоответствие предоставляемых данных"},
+            return JsonResponse({'Status':'Failure', 'Reason': serializer.errors},
                                 status=status.HTTP_400_BAD_REQUEST)
 
         try:
             user = serializer.save()
-            ConfirmEmailToken.objects.create(user=user)
+            token_obj = ConfirmEmailToken.objects.create(user=user)
             return JsonResponse({'Status': 'Success',
-                                 'message': f'Успешно зарегистрирован пользователь с ID {user.pk} \n с токеном'
-                                            f'{user.token}'
+                                 'message': f'Успешно зарегистрирован пользователь с ID {user.pk} с токеном'
+                                            f' {token_obj.key}'
                                  }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
