@@ -139,8 +139,10 @@ class LoginAccount(APIView):
 
             return Response({
                 'status': 'success',
-                'token': token.key,
-                'user': UserSerializer(user).data,
+                'data':{
+                    'token': token.key,
+                    'user': UserSerializer(user).data,
+                },
             }, status=status.HTTP_200_OK)
         return Response({'status': 'error', 'message':'Не введены учётные данные'}, status=status.HTTP_401_UNAUTHORIZED)
 
@@ -227,17 +229,17 @@ class BasketView(APIView):
                         try:
                             serializer.save()
                         except IntegrityError as e:
-                            return Response({'status': 'error', 'Причина': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+                            return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_400_BAD_REQUEST)
                         else:
                             objects_created += 1
                     else:
-                        return Response({'status': 'error', 'Причина': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+                        return Response({'status': 'error', 'message': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
-            return Response({'status': 'success', "Созданы объекты: " : objects_created}, status=status.HTTP_200_OK)
+            return Response({'status': 'success', 'data' : objects_created}, status=status.HTTP_200_OK)
 
         return Response({
-            "status": 'error',
-            "Reason": "Указаны не все необходимые аргументы"
+            'status': 'error',
+            'message': "Указаны не все необходимые аргументы"
         })
 
 
@@ -259,9 +261,9 @@ class BasketView(APIView):
             if objects_deleted:
                 deleted_count = OrderItem.objects.filter(query).delete()[0]
 
-                return Response({'status': 'success', "Deleted Objects" : deleted_count}, status=200)
+                return Response({'status': 'success', "deleted Objects" : deleted_count}, status=200)
 
-        return Response({'status': 'error', "Reason" : "Not all required arguments were specified"}, status=400)
+        return Response({'status': 'error', 'message' : 'Не все требуемые аргументы переданы'}, status=400)
 
 
     def put(self, request):
@@ -281,8 +283,8 @@ class BasketView(APIView):
                             quantity = order_item['quantity']
                         )
 
-                return Response({'status': 'success', "Updated Objects: " : objects_updated}, status=200)
-        return Response({'status': 'error', 'message': 'Not all required arguments were specified'}, status=400)
+                return Response({'status': 'success', 'data': objects_updated}, status=200)
+        return Response({'status': 'error', 'message': 'Не все требуемые аргументы переданы'}, status=400)
 
 
 class PartnerUpdateView(APIView):
@@ -308,9 +310,12 @@ class PartnerUpdateView(APIView):
         task = import_shop_from_url.delay(request.user.id, url)
 
         return Response({
-            'status': "Accepted",
-            'Task ID': task.id,
-            'Message': 'Импорт в фоновом режиме'
+            'status': 'Accepted',
+            'data': {
+                'Task ID': task.id,
+                'Message': 'Импорт в фоновом режиме'
+            },
+
 
         }, status=status.HTTP_200_OK)
 
@@ -417,7 +422,7 @@ class ContactView(APIView):
 
                 if object_deleted:
                     deleted_count = Contact.objects.filter(query).delete()[0]
-                    return Response({'status': 'success', "Deleted Items":deleted_count}, status=status.HTTP_200_OK)
+                    return Response({'status': 'success', "deleted items":deleted_count}, status=status.HTTP_200_OK)
 
         return Response({'status': 'error', 'message': 'Не все требуемые аргументы переданы'}, status=status.HTTP_400_BAD_REQUEST)
 
