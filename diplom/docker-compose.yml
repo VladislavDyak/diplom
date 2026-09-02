@@ -46,6 +46,27 @@ services:
     depends_on:
       - web
 
+  redis:
+    image: redis:6-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+
+  celery:
+    build: .
+    command: python -m celery -A diplom worker --loglevel=info
+    volumes:
+      - .:/app
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DJANGO_SETTINGS_MODULE=diplom.settings
+      - REDIS_URL=${REDIS_URL}
+      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_DB}:${DB_PORT}/diplom
+    restart: unless-stopped
+
+
 volumes:
   postgres_data:
   static_volume:

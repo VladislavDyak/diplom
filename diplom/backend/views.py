@@ -1,14 +1,10 @@
 import json
-
 import requests
-import yaml
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
-from django.core.validators import URLValidator
 from django.db import IntegrityError
 from django.db.models import Q, F, Sum
 from django.http import JsonResponse
-from requests import get
 from rest_framework import status, permissions
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
@@ -18,14 +14,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from ujson import loads
-from yaml import safe_load, YAMLError
 from setuptools._distutils.util import strtobool
 from .models import ConfirmEmailToken, Category, Shop, Product, Order, OrderItem, ProductInfo, ProductParameter, \
     Contact, Parameter
 from .serializer import UserSerializer, CategorySerializer, ShopSerializer, ProductInfoSerializer, \
     OrderSerializer, OrderItemSerializer, ContactSerializer
-from .services.import_service import import_shop_data
 from .signals import new_order
+from .tasks import import_shop_from_url
 
 
 class RegisterAccount(APIView):
@@ -37,13 +32,15 @@ class RegisterAccount(APIView):
         serializer = UserSerializer(data=request.data)
 
         if not serializer.is_valid():
-            return JsonResponse("Несоответствие предоставляемых данных", status=status.HTTP_400_BAD_REQUEST)
+            return JsonResponse({'Status':'Failure', 'Reason': "Несоответствие предоставляемых данных"},
+                                status=status.HTTP_400_BAD_REQUEST)
 
         try:
             user = serializer.save()
             ConfirmEmailToken.objects.create(user=user)
             return JsonResponse({'Status': 'Success',
-                                 'message': f'Успешно зарегистрирован пользователь с ID {user.pk}'
+                                 'message': f'Успешно зарегистрирован пользователь с ID {user.pk} \n с токеном'
+                                            f'{user.token}'
                                  }, status=status.HTTP_201_CREATED)
 
         except Exception as e:
@@ -297,7 +294,9 @@ class PartnerUpdateView(APIView):
     def post(self, request):
 
         if request.user.type != 'shop':
-            return JsonResponse({'Status': "Failure", 'Reason': 'Доступно только для магазинов'}, status=status.HTTP_403_FORBIDDEN)
+            return JsonResponse({'Status': "Failure",
+                                 'Reason': 'Доступно только для магазинов'},
+                                status=status.HTTP_403_FORBIDDEN)
 
         url = request.data.get('url')
         if not url:
@@ -307,39 +306,14 @@ class PartnerUpdateView(APIView):
                 'Reason': 'URL не указан!'
             })
 
-        validate_url = URLValidator()
+        task = import_shop_from_url.delay(request.user.id, url)
 
-        try:
-            validate_url(url)
-        except ValidationError as e:
-            return JsonResponse({'Status': "Failure",
-                                 'Reason': str(e)}, status=status.HTTP_403_FORBIDDEN)
+        return JsonResponse({
+            'Status': "Accepted",
+            'Task ID': task.id,
+            'Message': 'Импорт в фоновом режиме'
 
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            data = yaml.safe_load(response.content)
-
-        except requests.RequestException as e:
-            return JsonResponse({'Status': "Failure",
-                                 'Reason': f'Ошибка загрузки {str(e)}'},
-                                status=status.HTTP_403_FORBIDDEN)
-        except YAMLError as e:
-            return JsonResponse({'Status': "Failure",
-                                 'Reason': f'Ошибка парсинга YAML {str(e)}'},)
-
-        result = import_shop_data(data, request.user.id)
-
-        if result['Status'] == True:
-            return JsonResponse({'Status': "Success",
-                                 'URL': url,
-                                 'Shop': result['Shop_name'],
-                                 'Message': result['Message'],},
-                                status=status.HTTP_200_OK)
-        else:
-            return JsonResponse({'Status': "Failure",
-                                 'Reason': result['Message']},
-                                status= status.HTTP_400_BAD_REQUEST)
+        }, status=status.HTTP_200_OK)
 
 
 
