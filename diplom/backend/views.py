@@ -32,6 +32,7 @@ def order_query_set():
             total_sum=Sum(F('order_items__quantity') * F('order_items__product_info__price')))
             .distinct())
 
+
 class RegisterAccount(APIView):
 
     permission_classes = (permissions.AllowAny,)
@@ -299,6 +300,16 @@ class PartnerUpdateView(APIView):
         ]
 
     def post(self, request):
+
+        shop = Shop.objects.filter(
+            user=request.user,
+        ).first()
+
+        if not shop:
+            return Response({'status': 'error',
+                             'message': 'Магазин пользователя не найден'},
+                            status=status.HTTP_404_NOT_FOUND
+                            )
 
         serializer = PartnerUpdateSerializer(data=request.data)
         if not serializer.is_valid():
